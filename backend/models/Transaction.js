@@ -1,78 +1,66 @@
-const { DataTypes } = require('sequelize');
+const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
-module.exports = (sequelize) => {
-  const Transaction = sequelize.define('Transaction', {
-    id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
-      primaryKey: true,
-    },
-    type: {
-      type: DataTypes.ENUM('sale', 'purchase', 'refill', 'return', 'payment_received', 'payment_made'),
-      allowNull: false,
-    },
-    customerId: {
-      type: DataTypes.UUID,
-      allowNull: true,
-      field: 'customer_id',
-    },
-    vendorId: {
-      type: DataTypes.UUID,
-      allowNull: true,
-      field: 'vendor_id',
-    },
-    createdBy: {
-      type: DataTypes.UUID,
-      allowNull: false,
-      field: 'created_by',
-    },
-    totalAmount: {
-      type: DataTypes.DECIMAL(12, 2),
-      allowNull: false,
-      defaultValue: 0,
-      field: 'total_amount',
-    },
-    taxAmount: {
-      type: DataTypes.DECIMAL(12, 2),
-      defaultValue: 0,
-      field: 'tax_amount',
-    },
-    discountAmount: {
-      type: DataTypes.DECIMAL(12, 2),
-      defaultValue: 0,
-      field: 'discount_amount',
-    },
-    grandTotal: {
-      type: DataTypes.DECIMAL(12, 2),
-      allowNull: false,
-      defaultValue: 0,
-      field: 'grand_total',
-    },
-    paidAmount: {
-      type: DataTypes.DECIMAL(12, 2),
-      defaultValue: 0,
-      field: 'paid_amount',
-    },
-    paymentStatus: {
-      type: DataTypes.ENUM('paid', 'partial', 'unpaid'),
-      allowNull: false,
-      defaultValue: 'unpaid',
-      field: 'payment_status',
-    },
-    paymentMethod: {
-      type: DataTypes.ENUM('cash', 'upi', 'bank_transfer', 'credit', 'cheque'),
-      allowNull: true,
-      field: 'payment_method',
-    },
-    notes: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-  }, {
-    tableName: 'transactions',
-    underscored: true,
-    timestamps: true,
-  });
+const transactionSchema = new mongoose.Schema({
+  _id: {
+    type: String,
+    default: uuidv4,
+  },
+  type: {
+    type: String,
+    enum: ['sale', 'purchase', 'refill', 'return', 'payment_received', 'payment_made'],
+    required: true,
+  },
+  customerId: {
+    type: String,
+    ref: 'Customer',
+  },
+  vendorId: {
+    type: String,
+    ref: 'Vendor',
+  },
+  createdBy: {
+    type: String,
+    required: true,
+    ref: 'User',
+  },
+  totalAmount: {
+    type: Number,
+    required: true,
+    default: 0,
+  },
+  taxAmount: {
+    type: Number,
+    default: 0,
+  },
+  discountAmount: {
+    type: Number,
+    default: 0,
+  },
+  grandTotal: {
+    type: Number,
+    required: true,
+    default: 0,
+  },
+  paidAmount: {
+    type: Number,
+    default: 0,
+  },
+  paymentStatus: {
+    type: String,
+    enum: ['paid', 'partial', 'unpaid'],
+    default: 'unpaid',
+  },
+  paymentMethod: {
+    type: String,
+    enum: ['cash', 'upi', 'bank_transfer', 'credit', 'cheque'],
+  },
+  notes: {
+    type: String,
+  },
+}, {
+  timestamps: true,
+  collection: 'transactions',
+});
 
-  return Transaction;
-};
+module.exports = mongoose.model('Transaction', transactionSchema);

@@ -35,7 +35,14 @@ const inventoryData = [
   { name: 'Acetylene', full: 8, empty: 3, color: '#f59e0b' },
 ];
 
-const PIE_COLORS = ['#10b981', '#64748b', '#f59e0b', '#3b82f6', '#ef4444'];
+const STATUS_COLORS = {
+  full: '#10b981',
+  empty: '#64748b',
+  in_refill: '#f59e0b',
+  with_customer: '#3b82f6',
+  damaged: '#ef4444',
+  retired: '#78716c',
+};
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -86,6 +93,22 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
+// Pad salesTrend to always have 7 entries
+function padSalesTrend(trend) {
+  if (!trend || !Array.isArray(trend)) return demoStats.salesTrend;
+  if (trend.length >= 7) return trend;
+  const map = {};
+  trend.forEach(t => { const d = (t.date || '').split('T')[0]; if (d) map[d] = t; });
+  const result = [];
+  const today = new Date();
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    const key = d.toISOString().split('T')[0];
+    result.push(map[key] || { date: key, total: 0, count: 0 });
+  }
+  return result;
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState(demoStats);
   const [loading, setLoading] = useState(false);
@@ -98,7 +121,11 @@ export default function DashboardPage() {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
-        if (data.success) setStats(data.data);
+        if (data.success) {
+          // Ensure salesTrend is always padded to 7 days
+          data.data.salesTrend = padSalesTrend(data.data.salesTrend);
+          setStats(data.data);
+        }
       } catch {
         // Use demo data
       }
@@ -106,10 +133,13 @@ export default function DashboardPage() {
     fetchStats();
   }, []);
 
-  const cylinderPieData = Object.entries(stats.cylindersByStatus).map(([name, value]) => ({
-    name: name.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
-    value,
-  }));
+  const cylinderPieData = Object.entries(stats.cylindersByStatus || {})
+    .filter(([, value]) => value > 0)
+    .map(([name, value]) => ({
+      name: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+      value,
+      fill: STATUS_COLORS[name] || '#64748b',
+    }));
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-8">
@@ -199,7 +229,7 @@ export default function DashboardPage() {
                   dataKey="value"
                 >
                   {cylinderPieData.map((entry, index) => (
-                    <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                    <Cell key={index} fill={entry.fill} />
                   ))}
                 </Pie>
                 <Tooltip content={<CustomTooltip />} />
@@ -247,6 +277,8 @@ export default function DashboardPage() {
               { label: 'Check Ledger', href: '/dashboard/ledger', color: '#f59e0b', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
               { label: 'Track Cylinder', href: '/dashboard/cylinders', color: '#06b6d4', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' },
               { label: 'View Deposits', href: '/dashboard/deposits', color: '#ec4899', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+              { label: 'Report Damage', href: '/dashboard/damage-reports', color: '#ef4444', icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' },
+              { label: 'Add Vendor', href: '/dashboard/vendors', color: '#f97316', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
             ].map((action) => (
               <a
                 key={action.label}

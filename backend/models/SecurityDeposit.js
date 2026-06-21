@@ -1,51 +1,43 @@
-const { DataTypes } = require('sequelize');
+const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
-module.exports = (sequelize) => {
-  const SecurityDeposit = sequelize.define('SecurityDeposit', {
-    id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
-      primaryKey: true,
-    },
-    customerId: {
-      type: DataTypes.UUID,
-      allowNull: false,
-      field: 'customer_id',
-    },
-    cylinderId: {
-      type: DataTypes.UUID,
-      allowNull: false,
-      field: 'cylinder_id',
-    },
-    depositAmount: {
-      type: DataTypes.DECIMAL(10, 2),
-      allowNull: false,
-      field: 'deposit_amount',
-    },
-    status: {
-      type: DataTypes.ENUM('active', 'refunded', 'forfeited', 'adjusted'),
-      allowNull: false,
-      defaultValue: 'active',
-    },
-    depositDate: {
-      type: DataTypes.DATEONLY,
-      allowNull: false,
-      field: 'deposit_date',
-    },
-    refundDate: {
-      type: DataTypes.DATEONLY,
-      allowNull: true,
-      field: 'refund_date',
-    },
-    notes: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-  }, {
-    tableName: 'security_deposits',
-    underscored: true,
-    timestamps: true,
-  });
+const securityDepositSchema = new mongoose.Schema({
+  _id: {
+    type: String,
+    default: uuidv4,
+  },
+  customerId: {
+    type: String,
+    required: true,
+    ref: 'Customer',
+  },
+  cylinderId: {
+    type: String,
+    required: true,
+    ref: 'Cylinder',
+  },
+  depositAmount: {
+    type: Number,
+    required: true,
+  },
+  status: {
+    type: String,
+    enum: ['active', 'refunded', 'forfeited', 'adjusted'],
+    default: 'active',
+  },
+  depositDate: {
+    type: Date,
+    required: true,
+  },
+  refundDate: {
+    type: Date,
+  },
+  notes: {
+    type: String,
+  },
+}, {
+  timestamps: true,
+  collection: 'security_deposits',
+});
 
-  return SecurityDeposit;
-};
+module.exports = mongoose.model('SecurityDeposit', securityDepositSchema);

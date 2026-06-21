@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const db = require('./models');
+const { connectDB } = require('./models');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -30,10 +30,11 @@ app.use('/api/transactions', require('./routes/transactions'));
 app.use('/api/ledger', require('./routes/ledger'));
 app.use('/api/deposits', require('./routes/deposits'));
 app.use('/api/dashboard', require('./routes/dashboard'));
+app.use('/api/damage-reports', require('./routes/damageReports'));
 
 // ─── Health Check ────────────────────────────────────────
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', name: 'Dashmesh Gases ERP API', version: '1.0.0' });
+  res.json({ status: 'ok', name: 'Dashmesh Gases ERP API', version: '1.0.0', database: 'MongoDB' });
 });
 
 // ─── Error Handler ───────────────────────────────────────
@@ -45,12 +46,7 @@ app.use((err, req, res, next) => {
 // ─── Start ───────────────────────────────────────────────
 const startServer = async () => {
   try {
-    await db.sequelize.authenticate();
-    console.log('✅ Database connected');
-
-    // Sync tables (use migrations in production)
-    await db.sequelize.sync({ alter: true });
-    console.log('✅ Tables synced');
+    await connectDB();
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Dashmesh Gases ERP API running on port ${PORT}`);

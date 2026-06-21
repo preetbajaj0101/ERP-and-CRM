@@ -9,28 +9,25 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const { search, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
+    const query = {};
 
-    const where = {};
     if (search) {
-      const { Op } = require('sequelize');
-      where[Op.or] = [
-        { name: { [Op.iLike]: `%${search}%` } },
-        { phone: { [Op.iLike]: `%${search}%` } },
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
       ];
     }
 
-    const { count, rows } = await Vendor.findAndCountAll({
-      where,
-      order: [['name', 'ASC']],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-    });
+    const total = await Vendor.countDocuments(query);
+    const rows = await Vendor.find(query)
+      .sort({ name: 1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
 
     res.json({
       success: true,
       data: rows,
-      pagination: { total: count, page: parseInt(page), pages: Math.ceil(count / limit) },
+      pagination: { total, page: parseInt(page), pages: Math.ceil(total / limit) },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -40,7 +37,7 @@ router.get('/', authenticate, async (req, res) => {
 // ─── Get Single Vendor ────────────────────────────────────
 router.get('/:id', authenticate, async (req, res) => {
   try {
-    const vendor = await Vendor.findByPk(req.params.id);
+    const vendor = await Vendor.findById(req.params.id);
     if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found.' });
     res.json({ success: true, data: vendor });
   } catch (error) {
@@ -61,9 +58,8 @@ router.post('/', authenticate, rbac('admin', 'purchaser'), async (req, res) => {
 // ─── Update Vendor ────────────────────────────────────────
 router.put('/:id', authenticate, rbac('admin', 'purchaser'), async (req, res) => {
   try {
-    const vendor = await Vendor.findByPk(req.params.id);
+    const vendor = await Vendor.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found.' });
-    await vendor.update(req.body);
     res.json({ success: true, data: vendor });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -73,9 +69,8 @@ router.put('/:id', authenticate, rbac('admin', 'purchaser'), async (req, res) =>
 // ─── Delete Vendor ────────────────────────────────────────
 router.delete('/:id', authenticate, rbac('admin'), async (req, res) => {
   try {
-    const vendor = await Vendor.findByPk(req.params.id);
+    const vendor = await Vendor.findByIdAndDelete(req.params.id);
     if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found.' });
-    await vendor.destroy();
     res.json({ success: true, message: 'Vendor deleted.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

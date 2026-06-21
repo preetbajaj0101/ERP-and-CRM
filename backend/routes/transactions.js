@@ -1,5 +1,6 @@
 const express = require('express');
-const { Transaction, TransactionItem, Customer, Vendor, Inventory, Cylinder, Invoice, sequelize } = require('../models');
+const mongoose = require('mongoose');
+const { Transaction, TransactionItem, Customer, Vendor, Inventory, Cylinder, Invoice } = require('../models');
 const authenticate = require('../middleware/auth');
 const rbac = require('../middleware/rbac');
 const LedgerService = require('../services/ledgerService');
@@ -10,19 +11,26 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const { type, page = 1, limit = 20 } = req.query;
-    const where = {};
-    if (type) where.type = type;
-    const { count, rows } = await Transaction.findAndCountAll({
-      where,
-      include: [
-        { model: Customer, as: 'customer', attributes: ['id', 'name'] },
-        { model: Vendor, as: 'vendor', attributes: ['id', 'name'] },
-      ],
-      order: [['createdAt', 'DESC']],
-      limit: parseInt(limit),
-      offset: (page - 1) * limit,
+    const query = {};
+    if (type) query.type = type;
+
+    const total = await Transaction.countDocuments(query);
+    const rows = await Transaction.find(query)
+      .populate('customerId', 'name')
+      .populate('vendorId', 'name')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
+    // Map for frontend compatibility
+    const data = rows.map(r => {
+      const obj = r.toObject();
+      obj.customer = obj.customerId;
+      obj.vendor = obj.vendorId;
+      return obj;
     });
-    res.json({ success: true, data: rows, pagination: { total: count, page: parseInt(page), pages: Math.ceil(count / limit) } });
+
+    res.json({ success: true, data, pagination: { total, page: parseInt(page), pages: Math.ceil(total / limit) } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -31,16 +39,22 @@ router.get('/', authenticate, async (req, res) => {
 // Get single transaction with items
 router.get('/:id', authenticate, async (req, res) => {
   try {
-    const txn = await Transaction.findByPk(req.params.id, {
-      include: [
-        { model: Customer, as: 'customer' },
-        { model: Vendor, as: 'vendor' },
-        { model: TransactionItem, as: 'items', include: [{ model: Inventory, as: 'inventoryItem' }] },
-        { model: Invoice, as: 'invoice' },
-      ],
-    });
+    const txn = await Transaction.findById(req.params.id)
+      .populate('customerId')
+      .populate('vendorId');
+
     if (!txn) return res.status(404).json({ success: false, message: 'Transaction not found.' });
-    res.json({ success: true, data: txn });
+
+    const items = await TransactionItem.find({ transactionId: txn._id }).populate('inventoryId');
+    const invoice = await Invoice.findOne({ transactionId: txn._id });
+
+    const obj = txn.toObject();
+    obj.customer = obj.customerId;
+    obj.vendor = obj.vendorId;
+    obj.items = items.map(i => { const io = i.toObject(); io.inventoryItem = io.inventoryId; return io; });
+    obj.invoice = invoice;
+
+    res.json({ success: true, data: obj });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -48,137 +62,140 @@ router.get('/:id', authenticate, async (req, res) => {
 
 // Create sale transaction
 router.post('/sale', authenticate, rbac('admin', 'purchaser'), async (req, res) => {
-  const t = await sequelize.transaction();
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { customerId, items, paymentMethod, paidAmount, notes, taxAmount = 0, discountAmount = 0 } = req.body;
     let totalAmount = 0;
-    // Validate and calculate
+
     for (const item of items) {
-      const inv = await Inventory.findByPk(item.inventoryId, { transaction: t });
+      const inv = await Inventory.findById(item.inventoryId).session(session);
       if (!inv) throw new Error(`Inventory item not found: ${item.inventoryId}`);
-      totalAmount += item.quantity * (item.unitPrice || parseFloat(inv.unitPrice));
+      totalAmount += item.quantity * (item.unitPrice || inv.unitPrice);
     }
+
     const grandTotal = totalAmount + parseFloat(taxAmount) - parseFloat(discountAmount);
     const paymentStatus = paidAmount >= grandTotal ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
 
-    const transaction = await Transaction.create({
-      type: 'sale', customerId, createdBy: req.user.id,
+    const [transaction] = await Transaction.create([{
+      type: 'sale', customerId, createdBy: req.user._id,
       totalAmount, taxAmount, discountAmount, grandTotal, paidAmount: paidAmount || 0,
       paymentStatus, paymentMethod, notes,
-    }, { transaction: t });
+    }], { session });
 
-    // Create items and update inventory
     for (const item of items) {
-      const inv = await Inventory.findByPk(item.inventoryId, { transaction: t });
-      const unitPrice = item.unitPrice || parseFloat(inv.unitPrice);
-      await TransactionItem.create({
-        transactionId: transaction.id, inventoryId: item.inventoryId,
+      const inv = await Inventory.findById(item.inventoryId).session(session);
+      const unitPrice = item.unitPrice || inv.unitPrice;
+      await TransactionItem.create([{
+        transactionId: transaction._id, inventoryId: item.inventoryId,
         cylinderId: item.cylinderId || null, quantity: item.quantity,
         unitPrice, totalPrice: item.quantity * unitPrice,
-      }, { transaction: t });
-      // Update stock
+      }], { session });
+
       if (inv.itemType === 'gas_cylinder') {
-        await inv.update({ quantityFull: inv.quantityFull - item.quantity }, { transaction: t });
+        await Inventory.findByIdAndUpdate(inv._id, { quantityFull: inv.quantityFull - item.quantity }, { session });
       } else {
-        await inv.update({ quantityTotal: inv.quantityTotal - item.quantity }, { transaction: t });
+        await Inventory.findByIdAndUpdate(inv._id, { quantityTotal: inv.quantityTotal - item.quantity }, { session });
       }
-      // Update cylinder status if tracked
+
       if (item.cylinderId) {
-        await Cylinder.update({ status: 'with_customer', currentHolderId: customerId }, { where: { id: item.cylinderId }, transaction: t });
+        await Cylinder.findByIdAndUpdate(item.cylinderId, { status: 'with_customer', currentHolderId: customerId }, { session });
       }
     }
 
-    // Ledger entry - debit customer (they owe us)
     await LedgerService.recordCustomerEntry({
-      customerId, transactionId: transaction.id,
+      customerId, transactionId: transaction._id,
       entryType: 'debit', amount: grandTotal,
-      description: `Sale - Invoice`, transaction: t,
+      description: 'Sale - Invoice', session,
     });
-    // If payment received, credit entry
     if (paidAmount > 0) {
       await LedgerService.recordCustomerEntry({
-        customerId, transactionId: transaction.id,
+        customerId, transactionId: transaction._id,
         entryType: 'credit', amount: paidAmount,
-        description: `Payment received (${paymentMethod})`, transaction: t,
+        description: `Payment received (${paymentMethod})`, session,
       });
     }
 
-    await t.commit();
+    await session.commitTransaction();
     res.status(201).json({ success: true, data: transaction });
   } catch (error) {
-    await t.rollback();
+    await session.abortTransaction();
     res.status(400).json({ success: false, message: error.message });
+  } finally {
+    session.endSession();
   }
 });
 
 // Create purchase transaction
 router.post('/purchase', authenticate, rbac('admin', 'purchaser'), async (req, res) => {
-  const t = await sequelize.transaction();
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { vendorId, items, paymentMethod, paidAmount, notes, taxAmount = 0 } = req.body;
     let totalAmount = 0;
-    for (const item of items) {
-      totalAmount += item.quantity * item.unitPrice;
-    }
+    for (const item of items) { totalAmount += item.quantity * item.unitPrice; }
     const grandTotal = totalAmount + parseFloat(taxAmount);
     const paymentStatus = paidAmount >= grandTotal ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
 
-    const transaction = await Transaction.create({
-      type: 'purchase', vendorId, createdBy: req.user.id,
+    const [transaction] = await Transaction.create([{
+      type: 'purchase', vendorId, createdBy: req.user._id,
       totalAmount, taxAmount, grandTotal, paidAmount: paidAmount || 0,
       paymentStatus, paymentMethod, notes,
-    }, { transaction: t });
+    }], { session });
 
     for (const item of items) {
-      await TransactionItem.create({
-        transactionId: transaction.id, inventoryId: item.inventoryId,
+      await TransactionItem.create([{
+        transactionId: transaction._id, inventoryId: item.inventoryId,
         quantity: item.quantity, unitPrice: item.unitPrice,
         totalPrice: item.quantity * item.unitPrice,
-      }, { transaction: t });
-      const inv = await Inventory.findByPk(item.inventoryId, { transaction: t });
+      }], { session });
+      const inv = await Inventory.findById(item.inventoryId).session(session);
       if (inv.itemType === 'gas_cylinder') {
-        await inv.update({ quantityFull: inv.quantityFull + item.quantity }, { transaction: t });
+        await Inventory.findByIdAndUpdate(inv._id, { quantityFull: inv.quantityFull + item.quantity }, { session });
       } else {
-        await inv.update({ quantityTotal: inv.quantityTotal + item.quantity }, { transaction: t });
+        await Inventory.findByIdAndUpdate(inv._id, { quantityTotal: inv.quantityTotal + item.quantity }, { session });
       }
     }
 
     await LedgerService.recordVendorEntry({
-      vendorId, transactionId: transaction.id,
+      vendorId, transactionId: transaction._id,
       entryType: 'debit', amount: grandTotal,
-      description: `Purchase from vendor`, transaction: t,
+      description: 'Purchase from vendor', session,
     });
     if (paidAmount > 0) {
       await LedgerService.recordVendorEntry({
-        vendorId, transactionId: transaction.id,
+        vendorId, transactionId: transaction._id,
         entryType: 'credit', amount: paidAmount,
-        description: `Payment made (${paymentMethod})`, transaction: t,
+        description: `Payment made (${paymentMethod})`, session,
       });
     }
 
-    await t.commit();
+    await session.commitTransaction();
     res.status(201).json({ success: true, data: transaction });
   } catch (error) {
-    await t.rollback();
+    await session.abortTransaction();
     res.status(400).json({ success: false, message: error.message });
+  } finally {
+    session.endSession();
   }
 });
 
 // Generate invoice PDF
 router.post('/:id/invoice', authenticate, async (req, res) => {
   try {
-    const txn = await Transaction.findByPk(req.params.id, {
-      include: [
-        { model: Customer, as: 'customer' },
-        { model: Vendor, as: 'vendor' },
-        { model: TransactionItem, as: 'items', include: [{ model: Inventory, as: 'inventoryItem' }] },
-      ],
-    });
+    const txn = await Transaction.findById(req.params.id)
+      .populate('customerId')
+      .populate('vendorId');
     if (!txn) return res.status(404).json({ success: false, message: 'Transaction not found.' });
-    const party = txn.customer || txn.vendor;
-    const { invoiceNumber, filePath } = await PDFService.generateInvoice(txn, txn.items, party);
+
+    const txnItems = await TransactionItem.find({ transactionId: txn._id }).populate('inventoryId');
+    const items = txnItems.map(i => { const io = i.toObject(); io.inventoryItem = io.inventoryId; return io; });
+
+    const party = txn.customerId || txn.vendorId;
+    const { invoiceNumber, filePath } = await PDFService.generateInvoice(txn, items, party);
+
     const invoice = await Invoice.create({
-      transactionId: txn.id, invoiceNumber,
+      transactionId: txn._id, invoiceNumber,
       totalAmount: txn.totalAmount, taxAmount: txn.taxAmount, grandTotal: txn.grandTotal,
       pdfPath: filePath,
     });

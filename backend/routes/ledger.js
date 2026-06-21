@@ -7,18 +7,19 @@ const router = express.Router();
 router.get('/customer/:customerId', authenticate, async (req, res) => {
   try {
     const { page = 1, limit = 50 } = req.query;
-    const customer = await Customer.findByPk(req.params.customerId);
+    const customer = await Customer.findById(req.params.customerId);
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found.' });
-    const entries = await LedgerEntry.findAndCountAll({
-      where: { customerId: req.params.customerId },
-      order: [['createdAt', 'DESC']],
-      limit: parseInt(limit),
-      offset: (page - 1) * limit,
-    });
+
+    const total = await LedgerEntry.countDocuments({ customerId: req.params.customerId });
+    const entries = await LedgerEntry.find({ customerId: req.params.customerId })
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
     res.json({
       success: true,
-      data: { customer: { name: customer.name, currentBalance: customer.currentBalance }, entries: entries.rows },
-      pagination: { total: entries.count, page: parseInt(page), pages: Math.ceil(entries.count / limit) },
+      data: { customer: { name: customer.name, currentBalance: customer.currentBalance }, entries },
+      pagination: { total, page: parseInt(page), pages: Math.ceil(total / limit) },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -29,18 +30,19 @@ router.get('/customer/:customerId', authenticate, async (req, res) => {
 router.get('/vendor/:vendorId', authenticate, async (req, res) => {
   try {
     const { page = 1, limit = 50 } = req.query;
-    const vendor = await Vendor.findByPk(req.params.vendorId);
+    const vendor = await Vendor.findById(req.params.vendorId);
     if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found.' });
-    const entries = await LedgerEntry.findAndCountAll({
-      where: { vendorId: req.params.vendorId },
-      order: [['createdAt', 'DESC']],
-      limit: parseInt(limit),
-      offset: (page - 1) * limit,
-    });
+
+    const total = await LedgerEntry.countDocuments({ vendorId: req.params.vendorId });
+    const entries = await LedgerEntry.find({ vendorId: req.params.vendorId })
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
     res.json({
       success: true,
-      data: { vendor: { name: vendor.name, currentBalance: vendor.currentBalance }, entries: entries.rows },
-      pagination: { total: entries.count, page: parseInt(page), pages: Math.ceil(entries.count / limit) },
+      data: { vendor: { name: vendor.name, currentBalance: vendor.currentBalance }, entries },
+      pagination: { total, page: parseInt(page), pages: Math.ceil(total / limit) },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -50,13 +52,11 @@ router.get('/vendor/:vendorId', authenticate, async (req, res) => {
 // Get all outstanding balances
 router.get('/outstanding', authenticate, async (req, res) => {
   try {
-    const { Op } = require('sequelize');
-    const customers = await Customer.findAll({
-      where: { currentBalance: { [Op.gt]: 0 } },
-      attributes: ['id', 'name', 'phone', 'currentBalance'],
-      order: [['currentBalance', 'DESC']],
-    });
-    const totalOutstanding = customers.reduce((s, c) => s + parseFloat(c.currentBalance), 0);
+    const customers = await Customer.find({ currentBalance: { $gt: 0 } })
+      .select('name phone currentBalance')
+      .sort({ currentBalance: -1 });
+
+    const totalOutstanding = customers.reduce((s, c) => s + c.currentBalance, 0);
     res.json({ success: true, data: { customers, totalOutstanding } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

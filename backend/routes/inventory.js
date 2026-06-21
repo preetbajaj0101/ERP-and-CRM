@@ -9,18 +9,22 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const { type, search, lowStock } = req.query;
-    const where = {};
-    if (type) where.itemType = type;
+    const query = {};
+    if (type) query.itemType = type;
 
     if (search) {
-      const { Op } = require('sequelize');
-      where.itemName = { [Op.iLike]: `%${search}%` };
+      query.itemName = { $regex: search, $options: 'i' };
     }
 
-    const items = await Inventory.findAll({
-      where,
-      include: [{ model: GasType, as: 'gasType' }],
-      order: [['itemName', 'ASC']],
+    let items = await Inventory.find(query)
+      .populate('gasTypeId')
+      .sort({ itemName: 1 });
+
+    // Transform populated gasTypeId to gasType for frontend compatibility
+    items = items.map(item => {
+      const obj = item.toObject();
+      obj.gasType = obj.gasTypeId;
+      return obj;
     });
 
     let result = items;
@@ -42,8 +46,11 @@ router.get('/', authenticate, async (req, res) => {
 // ─── Get Inventory Summary (for dashboard) ────────────────
 router.get('/summary', authenticate, async (req, res) => {
   try {
-    const items = await Inventory.findAll({
-      include: [{ model: GasType, as: 'gasType' }],
+    let items = await Inventory.find().populate('gasTypeId');
+    items = items.map(item => {
+      const obj = item.toObject();
+      obj.gasType = obj.gasTypeId;
+      return obj;
     });
 
     const summary = {
@@ -84,9 +91,8 @@ router.post('/', authenticate, rbac('admin', 'purchaser'), async (req, res) => {
 // ─── Update Inventory Item ────────────────────────────────
 router.put('/:id', authenticate, rbac('admin', 'purchaser'), async (req, res) => {
   try {
-    const item = await Inventory.findByPk(req.params.id);
+    const item = await Inventory.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!item) return res.status(404).json({ success: false, message: 'Item not found.' });
-    await item.update(req.body);
     res.json({ success: true, data: item });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -96,9 +102,8 @@ router.put('/:id', authenticate, rbac('admin', 'purchaser'), async (req, res) =>
 // ─── Delete Inventory Item ────────────────────────────────
 router.delete('/:id', authenticate, rbac('admin'), async (req, res) => {
   try {
-    const item = await Inventory.findByPk(req.params.id);
+    const item = await Inventory.findByIdAndDelete(req.params.id);
     if (!item) return res.status(404).json({ success: false, message: 'Item not found.' });
-    await item.destroy();
     res.json({ success: true, message: 'Item deleted.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

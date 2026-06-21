@@ -1,55 +1,49 @@
-const { DataTypes } = require('sequelize');
+const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
-module.exports = (sequelize) => {
-  const LedgerEntry = sequelize.define('LedgerEntry', {
-    id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
-      primaryKey: true,
-    },
-    customerId: {
-      type: DataTypes.UUID,
-      allowNull: true,
-      field: 'customer_id',
-    },
-    vendorId: {
-      type: DataTypes.UUID,
-      allowNull: true,
-      field: 'vendor_id',
-    },
-    transactionId: {
-      type: DataTypes.UUID,
-      allowNull: true,
-      field: 'transaction_id',
-    },
-    entryType: {
-      type: DataTypes.ENUM('credit', 'debit'),
-      allowNull: false,
-      field: 'entry_type',
-    },
-    amount: {
-      type: DataTypes.DECIMAL(12, 2),
-      allowNull: false,
-    },
-    runningBalance: {
-      type: DataTypes.DECIMAL(12, 2),
-      allowNull: false,
-      field: 'running_balance',
-    },
-    description: {
-      type: DataTypes.STRING(500),
-      allowNull: false,
-    },
-    date: {
-      type: DataTypes.DATEONLY,
-      allowNull: false,
-      defaultValue: DataTypes.NOW,
-    },
-  }, {
-    tableName: 'ledger_entries',
-    underscored: true,
-    timestamps: true,
-  });
+const ledgerEntrySchema = new mongoose.Schema({
+  _id: {
+    type: String,
+    default: uuidv4,
+  },
+  customerId: {
+    type: String,
+    ref: 'Customer',
+  },
+  vendorId: {
+    type: String,
+    ref: 'Vendor',
+  },
+  transactionId: {
+    type: String,
+    ref: 'Transaction',
+  },
+  entryType: {
+    type: String,
+    enum: ['credit', 'debit'],
+    required: true,
+  },
+  amount: {
+    type: Number,
+    required: true,
+  },
+  runningBalance: {
+    type: Number,
+    required: true,
+  },
+  description: {
+    type: String,
+    required: true,
+    maxlength: 500,
+  },
+  date: {
+    type: Date,
+    required: true,
+    default: Date.now,
+  },
+}, {
+  timestamps: true,
+  collection: 'ledger_entries',
+});
 
-  return LedgerEntry;
-};
+module.exports = mongoose.model('LedgerEntry', ledgerEntrySchema);

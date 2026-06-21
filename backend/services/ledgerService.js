@@ -1,4 +1,4 @@
-const { LedgerEntry, Customer, Vendor, sequelize } = require('../models');
+const { LedgerEntry, Customer, Vendor } = require('../models');
 
 /**
  * Ledger Service - Manages all credit/debit entries and running balances
@@ -7,20 +7,20 @@ class LedgerService {
   /**
    * Record a customer ledger entry and update their running balance
    */
-  static async recordCustomerEntry({ customerId, transactionId, entryType, amount, description, date, transaction: t }) {
-    const customer = await Customer.findByPk(customerId, { transaction: t });
+  static async recordCustomerEntry({ customerId, transactionId, entryType, amount, description, date, session }) {
+    const customer = await Customer.findById(customerId).session(session || null);
     if (!customer) throw new Error('Customer not found');
 
     let newBalance;
     if (entryType === 'debit') {
       // Customer owes more (sale on credit)
-      newBalance = parseFloat(customer.currentBalance) + parseFloat(amount);
+      newBalance = customer.currentBalance + parseFloat(amount);
     } else {
       // Customer paid (credit entry)
-      newBalance = parseFloat(customer.currentBalance) - parseFloat(amount);
+      newBalance = customer.currentBalance - parseFloat(amount);
     }
 
-    const entry = await LedgerEntry.create({
+    const entryData = {
       customerId,
       transactionId,
       entryType,
@@ -28,9 +28,16 @@ class LedgerService {
       runningBalance: newBalance,
       description,
       date: date || new Date(),
-    }, { transaction: t });
+    };
 
-    await customer.update({ currentBalance: newBalance }, { transaction: t });
+    let entry;
+    if (session) {
+      [entry] = await LedgerEntry.create([entryData], { session });
+    } else {
+      entry = await LedgerEntry.create(entryData);
+    }
+
+    await Customer.findByIdAndUpdate(customerId, { currentBalance: newBalance }, { session: session || null });
 
     return entry;
   }
@@ -38,20 +45,20 @@ class LedgerService {
   /**
    * Record a vendor ledger entry and update their running balance
    */
-  static async recordVendorEntry({ vendorId, transactionId, entryType, amount, description, date, transaction: t }) {
-    const vendor = await Vendor.findByPk(vendorId, { transaction: t });
+  static async recordVendorEntry({ vendorId, transactionId, entryType, amount, description, date, session }) {
+    const vendor = await Vendor.findById(vendorId).session(session || null);
     if (!vendor) throw new Error('Vendor not found');
 
     let newBalance;
     if (entryType === 'debit') {
       // We owe vendor more (purchase)
-      newBalance = parseFloat(vendor.currentBalance) + parseFloat(amount);
+      newBalance = vendor.currentBalance + parseFloat(amount);
     } else {
       // We paid vendor (credit)
-      newBalance = parseFloat(vendor.currentBalance) - parseFloat(amount);
+      newBalance = vendor.currentBalance - parseFloat(amount);
     }
 
-    const entry = await LedgerEntry.create({
+    const entryData = {
       vendorId,
       transactionId,
       entryType,
@@ -59,9 +66,16 @@ class LedgerService {
       runningBalance: newBalance,
       description,
       date: date || new Date(),
-    }, { transaction: t });
+    };
 
-    await vendor.update({ currentBalance: newBalance }, { transaction: t });
+    let entry;
+    if (session) {
+      [entry] = await LedgerEntry.create([entryData], { session });
+    } else {
+      entry = await LedgerEntry.create(entryData);
+    }
+
+    await Vendor.findByIdAndUpdate(vendorId, { currentBalance: newBalance }, { session: session || null });
 
     return entry;
   }
@@ -70,24 +84,24 @@ class LedgerService {
    * Get full ledger history for a customer
    */
   static async getCustomerLedger(customerId, { limit = 50, offset = 0 } = {}) {
-    return LedgerEntry.findAndCountAll({
-      where: { customerId },
-      order: [['createdAt', 'DESC']],
-      limit,
-      offset,
-    });
+    const total = await LedgerEntry.countDocuments({ customerId });
+    const rows = await LedgerEntry.find({ customerId })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(offset);
+    return { count: total, rows };
   }
 
   /**
    * Get full ledger history for a vendor
    */
   static async getVendorLedger(vendorId, { limit = 50, offset = 0 } = {}) {
-    return LedgerEntry.findAndCountAll({
-      where: { vendorId },
-      order: [['createdAt', 'DESC']],
-      limit,
-      offset,
-    });
+    const total = await LedgerEntry.countDocuments({ vendorId });
+    const rows = await LedgerEntry.find({ vendorId })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(offset);
+    return { count: total, rows };
   }
 }
 

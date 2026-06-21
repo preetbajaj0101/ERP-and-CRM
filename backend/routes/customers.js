@@ -9,31 +9,28 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const { search, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
+    const query = {};
 
-    const where = {};
     if (search) {
-      const { Op } = require('sequelize');
-      where[Op.or] = [
-        { name: { [Op.iLike]: `%${search}%` } },
-        { phone: { [Op.iLike]: `%${search}%` } },
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
       ];
     }
 
-    const { count, rows } = await Customer.findAndCountAll({
-      where,
-      order: [['name', 'ASC']],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-    });
+    const total = await Customer.countDocuments(query);
+    const rows = await Customer.find(query)
+      .sort({ name: 1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
 
     res.json({
       success: true,
       data: rows,
       pagination: {
-        total: count,
+        total,
         page: parseInt(page),
-        pages: Math.ceil(count / limit),
+        pages: Math.ceil(total / limit),
       },
     });
   } catch (error) {
@@ -44,7 +41,7 @@ router.get('/', authenticate, async (req, res) => {
 // ─── Get Single Customer ──────────────────────────────────
 router.get('/:id', authenticate, async (req, res) => {
   try {
-    const customer = await Customer.findByPk(req.params.id);
+    const customer = await Customer.findById(req.params.id);
     if (!customer) {
       return res.status(404).json({ success: false, message: 'Customer not found.' });
     }
@@ -67,11 +64,10 @@ router.post('/', authenticate, rbac('admin', 'purchaser'), async (req, res) => {
 // ─── Update Customer ──────────────────────────────────────
 router.put('/:id', authenticate, rbac('admin', 'purchaser'), async (req, res) => {
   try {
-    const customer = await Customer.findByPk(req.params.id);
+    const customer = await Customer.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!customer) {
       return res.status(404).json({ success: false, message: 'Customer not found.' });
     }
-    await customer.update(req.body);
     res.json({ success: true, data: customer });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -81,11 +77,10 @@ router.put('/:id', authenticate, rbac('admin', 'purchaser'), async (req, res) =>
 // ─── Delete Customer ──────────────────────────────────────
 router.delete('/:id', authenticate, rbac('admin'), async (req, res) => {
   try {
-    const customer = await Customer.findByPk(req.params.id);
+    const customer = await Customer.findByIdAndDelete(req.params.id);
     if (!customer) {
       return res.status(404).json({ success: false, message: 'Customer not found.' });
     }
-    await customer.destroy();
     res.json({ success: true, message: 'Customer deleted.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

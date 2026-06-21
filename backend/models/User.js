@@ -1,42 +1,39 @@
-const { DataTypes } = require('sequelize');
+const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
-module.exports = (sequelize) => {
-  const User = sequelize.define('User', {
-    id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
-      primaryKey: true,
-    },
-    name: {
-      type: DataTypes.STRING(100),
-      allowNull: false,
-    },
-    email: {
-      type: DataTypes.STRING(255),
-      allowNull: false,
-      unique: true,
-      validate: { isEmail: true },
-    },
-    passwordHash: {
-      type: DataTypes.STRING(255),
-      allowNull: false,
-      field: 'password_hash',
-    },
-    role: {
-      type: DataTypes.ENUM('admin', 'purchaser', 'vendor'),
-      allowNull: false,
-      defaultValue: 'purchaser',
-    },
-    isActive: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: true,
-      field: 'is_active',
-    },
-  }, {
-    tableName: 'users',
-    underscored: true,
-    timestamps: true,
-  });
+const userSchema = new mongoose.Schema({
+  _id: {
+    type: String,
+    default: uuidv4,
+  },
+  name: {
+    type: String,
+    required: true,
+    maxlength: 100,
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    match: [/^\S+@\S+\.\S+$/, 'Please use a valid email address.'],
+  },
+  passwordHash: {
+    type: String,
+    required: true,
+  },
+  role: {
+    type: String,
+    enum: ['admin', 'purchaser', 'vendor'],
+    default: 'purchaser',
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+}, {
+  timestamps: true,
+  collection: 'users',
+});
 
-  return User;
-};
+module.exports = mongoose.model('User', userSchema);

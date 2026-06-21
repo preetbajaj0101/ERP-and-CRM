@@ -1,48 +1,42 @@
-const { DataTypes } = require('sequelize');
+const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
-module.exports = (sequelize) => {
-  const TransactionItem = sequelize.define('TransactionItem', {
-    id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
-      primaryKey: true,
-    },
-    transactionId: {
-      type: DataTypes.UUID,
-      allowNull: false,
-      field: 'transaction_id',
-    },
-    inventoryId: {
-      type: DataTypes.UUID,
-      allowNull: false,
-      field: 'inventory_id',
-    },
-    cylinderId: {
-      type: DataTypes.UUID,
-      allowNull: true,
-      field: 'cylinder_id',
-      comment: 'Linked cylinder serial for tracking',
-    },
-    quantity: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 1,
-    },
-    unitPrice: {
-      type: DataTypes.DECIMAL(10, 2),
-      allowNull: false,
-      field: 'unit_price',
-    },
-    totalPrice: {
-      type: DataTypes.DECIMAL(12, 2),
-      allowNull: false,
-      field: 'total_price',
-    },
-  }, {
-    tableName: 'transaction_items',
-    underscored: true,
-    timestamps: true,
-  });
+const transactionItemSchema = new mongoose.Schema({
+  _id: {
+    type: String,
+    default: uuidv4,
+  },
+  transactionId: {
+    type: String,
+    required: true,
+    ref: 'Transaction',
+  },
+  inventoryId: {
+    type: String,
+    required: true,
+    ref: 'Inventory',
+  },
+  cylinderId: {
+    type: String,
+    ref: 'Cylinder',
+    // Linked cylinder serial for tracking
+  },
+  quantity: {
+    type: Number,
+    required: true,
+    default: 1,
+  },
+  unitPrice: {
+    type: Number,
+    required: true,
+  },
+  totalPrice: {
+    type: Number,
+    required: true,
+  },
+}, {
+  timestamps: true,
+  collection: 'transaction_items',
+});
 
-  return TransactionItem;
-};
+module.exports = mongoose.model('TransactionItem', transactionItemSchema);

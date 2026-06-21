@@ -1,53 +1,45 @@
-const { DataTypes } = require('sequelize');
+const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
-module.exports = (sequelize) => {
-  const Invoice = sequelize.define('Invoice', {
-    id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
-      primaryKey: true,
-    },
-    transactionId: {
-      type: DataTypes.UUID,
-      allowNull: false,
-      field: 'transaction_id',
-    },
-    invoiceNumber: {
-      type: DataTypes.STRING(30),
-      allowNull: false,
-      unique: true,
-      field: 'invoice_number',
-    },
-    totalAmount: {
-      type: DataTypes.DECIMAL(12, 2),
-      allowNull: false,
-      field: 'total_amount',
-    },
-    taxAmount: {
-      type: DataTypes.DECIMAL(12, 2),
-      defaultValue: 0,
-      field: 'tax_amount',
-    },
-    grandTotal: {
-      type: DataTypes.DECIMAL(12, 2),
-      allowNull: false,
-      field: 'grand_total',
-    },
-    pdfPath: {
-      type: DataTypes.STRING(500),
-      allowNull: true,
-      field: 'pdf_path',
-    },
-    generatedAt: {
-      type: DataTypes.DATE,
-      defaultValue: DataTypes.NOW,
-      field: 'generated_at',
-    },
-  }, {
-    tableName: 'invoices',
-    underscored: true,
-    timestamps: true,
-  });
+const invoiceSchema = new mongoose.Schema({
+  _id: {
+    type: String,
+    default: uuidv4,
+  },
+  transactionId: {
+    type: String,
+    required: true,
+    ref: 'Transaction',
+  },
+  invoiceNumber: {
+    type: String,
+    required: true,
+    unique: true,
+    maxlength: 30,
+  },
+  totalAmount: {
+    type: Number,
+    required: true,
+  },
+  taxAmount: {
+    type: Number,
+    default: 0,
+  },
+  grandTotal: {
+    type: Number,
+    required: true,
+  },
+  pdfPath: {
+    type: String,
+    maxlength: 500,
+  },
+  generatedAt: {
+    type: Date,
+    default: Date.now,
+  },
+}, {
+  timestamps: true,
+  collection: 'invoices',
+});
 
-  return Invoice;
-};
+module.exports = mongoose.model('Invoice', invoiceSchema);
